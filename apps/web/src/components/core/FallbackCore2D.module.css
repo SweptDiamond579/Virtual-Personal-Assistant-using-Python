@@ -1,0 +1,167 @@
+.root {
+  --lvl: 0;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(60% 60% at 50% 50%, rgb(6 16 31 / 0.9), #010309 72%);
+  overflow: hidden;
+  container-type: size;
+  transition: filter 0.6s ease;
+}
+
+.svg {
+  width: min(100%, 100cqh, 640px);
+  height: auto;
+  max-height: 100%;
+  aspect-ratio: 1;
+  overflow: visible;
+}
+
+/* ---- colour (transitions track state colour changes) ---- */
+.stopHot { stop-color: #ffffff; stop-opacity: 0.95; }
+.stopMid { stop-color: var(--c2); stop-opacity: 0.85; transition: stop-color 0.6s ease; }
+.stopEdge { stop-color: var(--c1); stop-opacity: 0.45; transition: stop-color 0.6s ease; }
+.stopOut { stop-color: var(--c1); stop-opacity: 0; transition: stop-color 0.6s ease; }
+.haloIn { stop-color: var(--c1); stop-opacity: 0.14; transition: stop-color 0.6s ease; }
+
+.halo { opacity: calc(0.6 + var(--energy) * 0.6); }
+
+.hair,
+.dash,
+.segment,
+.tick,
+.tickMajor,
+.cursor,
+.bar,
+.ripple,
+.shock,
+.blade {
+  fill: none;
+  stroke: var(--c1);
+  transition: stroke 0.6s ease, opacity 0.6s ease;
+  vector-effect: non-scaling-stroke;
+}
+
+.hair { stroke-width: 1; opacity: 0.35; }
+.segment { stroke-width: 3; opacity: 0.42; }
+.tick { stroke-width: 1; opacity: 0.45; }
+.tickMajor { stroke-width: 1.4; opacity: 0.85; }
+.dash { stroke-width: 1; stroke-dasharray: 3 4; opacity: 0.5; stroke: var(--c2); }
+.cursor { stroke-width: 2.5; opacity: 0.95; stroke: var(--c2); }
+
+/* ---- rotation ---- */
+.spin {
+  animation: rot calc(var(--base) / var(--spin)) linear infinite;
+  transform-origin: 0 0;
+}
+.ringOuter { --base: 70s; animation-direction: reverse; }
+.ringTicks { --base: 32s; }
+.ringDash { --base: 20s; animation-direction: reverse; }
+.ringCursor { --base: 13s; }
+
+@keyframes rot {
+  to { transform: rotate(360deg); }
+}
+
+/* ---- nucleus ---- */
+.nucleus {
+  transform-origin: 0 0;
+  transform: scale(calc(1 + var(--lvl) * 0.24));
+  animation: breathe 5s ease-in-out infinite;
+}
+.core {
+  fill: #ffffff;
+  opacity: 0.5;
+  filter: blur(3px);
+}
+@keyframes breathe {
+  0%, 100% { scale: 1; }
+  50% { scale: 1.04; }
+}
+
+/* ---- state layers (hidden by default) ---- */
+.bars,
+.ripples,
+.gate {
+  opacity: 0;
+  transition: opacity 0.6s ease, transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: 0 0;
+}
+.bars { transform: scale(calc(0.92 + var(--lvl) * 0.32)); }
+.bar { stroke-width: 2; stroke: var(--c2); opacity: calc(0.35 + var(--lvl) * 0.65); }
+.ripple { stroke-width: 1.2; opacity: 0; transform-origin: 0 0; }
+.gate { transform: scale(1.5) rotate(-35deg); }
+.blade { stroke-width: 5; opacity: 0.85; }
+.shock { stroke-width: 2; opacity: 0; transform-origin: 0 0; stroke: #ffffff; }
+
+.root[data-state="LISTENING"] .bars { opacity: 1; }
+
+.root[data-state="THINKING"] .segment {
+  animation: flicker 1.3s steps(2, jump-none) infinite;
+  animation-delay: calc(var(--i) * -0.37s);
+}
+@keyframes flicker {
+  0% { opacity: 0.25; }
+  100% { opacity: 1; }
+}
+
+.root[data-state="SPEAKING"] .ripples { opacity: calc(0.35 + var(--lvl) * 0.9); }
+.root[data-state="SPEAKING"] .ripple { animation: ripple 2.4s cubic-bezier(0.2, 0.6, 0.3, 1) infinite; }
+@keyframes ripple {
+  0% { transform: scale(1); opacity: 0.9; }
+  100% { transform: scale(3); opacity: 0; }
+}
+
+.root[data-state="EXECUTING"] .segment {
+  animation: seq 1.92s linear infinite;
+  animation-delay: calc(var(--i) * 0.08s);
+}
+@keyframes seq {
+  0%, 12% { opacity: 1; stroke-width: 4; }
+  30%, 100% { opacity: 0.25; stroke-width: 3; }
+}
+
+.root[data-state="WAITING_FOR_APPROVAL"] .gate { opacity: 1; transform: none; }
+.root[data-state="WAITING_FOR_APPROVAL"] .nucleus { animation: breathe-amber 3s ease-in-out infinite; }
+@keyframes breathe-amber {
+  0%, 100% { scale: 0.96; opacity: 0.8; }
+  50% { scale: 1.06; opacity: 1; }
+}
+
+.root[data-state="SUCCESS"] .shock { animation: shock 1.5s cubic-bezier(0.16, 1, 0.3, 1) 1 forwards; }
+@keyframes shock {
+  0% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(3.3); opacity: 0; }
+}
+
+.root[data-state="ERROR"] .svg { animation: jitter 2.6s steps(1, end) infinite; }
+@keyframes jitter {
+  0%, 86%, 100% { translate: 0 0; }
+  88% { translate: 2px -1px; }
+  90% { translate: -2px 1px; }
+  92% { translate: 1px 0; }
+}
+
+.root[data-state="OFFLINE"] { filter: saturate(0.25) brightness(0.65); }
+.root[data-state="OFFLINE"] .spin,
+.root[data-state="OFFLINE"] .nucleus { animation-play-state: paused; }
+.root[data-state="OFFLINE"] .segment:nth-child(3n) { opacity: 0.05; }
+
+/* ---- reduced motion ---- */
+.root[data-reduced] .spin { animation-duration: calc(var(--base) * 6 / var(--spin)); }
+.root[data-reduced] .svg,
+.root[data-reduced] .ripple,
+.root[data-reduced] .segment { animation: none !important; }
+.root[data-reduced] .shock { animation: none; opacity: 0; }
+.root[data-reduced] .nucleus { animation: none; transform: scale(calc(1 + var(--lvl) * 0.08)); }
+.root[data-reduced][data-state="SPEAKING"] .ripple { opacity: 0.4; transform: scale(1.4); }
+
+@media (prefers-reduced-motion: reduce) {
+  .spin,
+  .nucleus,
+  .ripple,
+  .segment,
+  .svg { animation: none !important; }
+}

@@ -1,3 +1,10 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
+
 export default function Home() {
-  return <main className="p-8 font-display">JARVIS OS</main>;
+  const router = useRouter();
+  useEffect(() => router.replace("/command/"), [router]);
+  return <main className="min-h-dvh bg-void" />;
 }

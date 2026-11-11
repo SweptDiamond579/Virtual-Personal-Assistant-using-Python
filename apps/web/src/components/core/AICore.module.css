@@ -1,0 +1,204 @@
+.root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  isolation: isolate;
+  background: #010309;
+  container-type: size;
+  outline: none;
+  border-radius: inherit;
+}
+
+/* Focus ring drawn inside the bounds so it is never clipped by the parent. */
+.root:focus-visible::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: inherit;
+  border: 1.5px solid rgb(46 230 255 / 0.85);
+  box-shadow: 0 0 0 3px rgb(46 230 255 / 0.14), inset 0 0 24px rgb(46 230 255 / 0.08);
+  pointer-events: none;
+  z-index: 5;
+}
+
+.stage {
+  position: absolute;
+  inset: 0;
+}
+
+.scene {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.root[data-ready="true"] .scene {
+  opacity: 1;
+}
+
+.fallback {
+  position: absolute;
+  inset: 0;
+  transition: opacity 0.7s ease;
+  pointer-events: none;
+}
+.fallback[data-hidden="true"] {
+  opacity: 0;
+}
+
+/* ---- satellite labels (positioned by the scene every frame) ---- */
+.labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  animation: fade-in 0.9s ease both;
+}
+.label {
+  --vis: 1;
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  white-space: nowrap;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #a8bfd6;
+  opacity: calc(var(--vis) * 0.62);
+  will-change: transform;
+  transition: opacity 0.25s ease, color 0.25s ease;
+}
+.label > * {
+  translate: 16px -50%;
+}
+.label[data-active="true"] {
+  opacity: 1;
+  color: #e6f4ff;
+}
+.label[data-active="true"] .labelText {
+  text-shadow: 0 0 12px rgb(46 230 255 / 0.65);
+}
+.labelIndex {
+  color: #6b8199;
+  font-size: 0.56rem;
+}
+.label[data-active="true"] .labelIndex {
+  color: #2ee6ff;
+}
+.labelText {
+  padding-bottom: 2px;
+  border-bottom: 1px solid rgb(120 210 255 / 0.22);
+}
+
+@container (max-width: 520px) {
+  .label:not([data-active="true"]) .labelText {
+    display: none;
+  }
+  .label {
+    font-size: 0.56rem;
+  }
+}
+
+/* ---- accessible node list: hidden until keyboard focus enters it ---- */
+.nodeNav {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 4;
+  clip-path: inset(50%);
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+.nodeNav:focus-within {
+  clip-path: none;
+  width: auto;
+  height: auto;
+  overflow: visible;
+}
+.nodeNav ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.nodeButton {
+  height: 1.7rem;
+  padding: 0 0.65rem;
+  border-radius: 999px;
+  border: 1px solid rgb(120 210 255 / 0.25);
+  background: rgb(6 16 31 / 0.85);
+  color: #e6f4ff;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.nodeButton:focus-visible {
+  outline: 1.5px solid #2ee6ff;
+  outline-offset: 2px;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.hint {
+  position: absolute;
+  right: 14px;
+  bottom: 12px;
+  z-index: 4;
+  margin: 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.6rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #6b8199;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+.root:focus-visible .hint {
+  opacity: 1;
+}
+
+.stats {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 4;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid rgb(120 200 255 / 0.14);
+  background: rgb(3 8 18 / 0.72);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  color: #a8bfd6;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+.stats span:empty::before {
+  content: "measuring…";
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

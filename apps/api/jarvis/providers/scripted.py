@@ -96,8 +96,17 @@ class ScriptedProvider:
         if results:
             parts = []
             for r in results:
-                status = "failed" if r.get("is_error") else "completed"
-                parts.append(f"The tool call {status}. Result: {str(r.get('content', ''))[:400]}")
+                raw = str(r.get("content", ""))
+                try:
+                    payload = json.loads(raw[raw.index("{") : raw.rindex("}") + 1])
+                    summary = payload.get("summary", raw)
+                    verified = " (verified)" if payload.get("verified") else ""
+                except ValueError:
+                    summary, verified = raw[:300], ""
+                if r.get("is_error"):
+                    parts.append(f"The tool call failed: {summary}")
+                else:
+                    parts.append(f"Done{verified}: {summary}")
             text = " ".join(parts)
             async for d in self._stream_text(text):
                 yield d

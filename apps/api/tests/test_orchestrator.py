@@ -70,7 +70,7 @@ async def test_chat_tool_call_persists_and_streams(owner: AuthedClient) -> None:
     assert len(tool_steps) == 1 and tool_steps[0].status == "succeeded"
     assert tool_steps[0].output["verified"] is True
     assert [m.role for m in visible] == ["user", "assistant"]
-    assert "completed" in visible[1].content
+    assert "Done (verified): Saved note" in visible[1].content
 
     types = [e["type"] for e in events(owner.user_id) if e["run_id"] == run_id]
     for expected in ("run.started", "tool.started", "tool.finished", "assistant.delta", "assistant.completed"):

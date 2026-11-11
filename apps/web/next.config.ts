@@ -11,12 +11,13 @@ export default function config(phase: string): NextConfig {
   const isDev = phase === PHASE_DEVELOPMENT_SERVER;
   return {
     reactStrictMode: true,
-    // Lets parallel dev servers (e.g. visual review harnesses) use separate build dirs.
-    distDir: process.env.JARVIS_NEXT_DIST_DIR || ".next",
     transpilePackages: ["@jarvis/protocol"],
     poweredByHeader: false,
     ...(isDev
       ? {
+          // Lets parallel dev servers (e.g. visual review harnesses) use separate build dirs.
+          // Dev only: with output "export", distDir would change the export directory.
+          distDir: process.env.JARVIS_NEXT_DIST_DIR || ".next",
           async rewrites() {
             return [{ source: "/api/:path*", destination: `${apiOrigin}/api/:path*` }];
           },

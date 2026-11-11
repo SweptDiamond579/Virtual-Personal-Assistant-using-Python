@@ -58,6 +58,9 @@
     0%, 100% { opacity: 0.55; }
     50% { opacity: 1; }
   }
+  @keyframes shimmer {
+    to { transform: translateX(100%); }
+  }
   @keyframes blink {
     to { visibility: hidden; }
   }
