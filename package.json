@@ -1,0 +1,25 @@
+{
+  "name": "jarvis-os",
+  "private": true,
+  "version": "0.1.0",
+  "description": "JARVIS OS - a secure, voice-controlled personal AI operating environment",
+  "packageManager": "pnpm@10.28.0",
+  "engines": { "node": ">=22.12" },
+  "scripts": {
+    "dev:web": "pnpm --filter @jarvis/web dev",
+    "dev:api": "cd apps/api && uv run uvicorn jarvis.main:app --reload --port 8000",
+    "build": "pnpm --filter @jarvis/web build",
+    "lint": "pnpm -r --if-present lint",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test": "pnpm -r --if-present test",
+    "e2e": "playwright test -c tests/e2e/playwright.config.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "^24.0.0",
+    "typescript": "5.9.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild", "sharp", "@tailwindcss/oxide", "unrs-resolver"]
+  }
+}

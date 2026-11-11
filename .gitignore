@@ -136,3 +136,20 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/
+# --- JARVIS OS ---
+node_modules/
+.next/
+.next-*/
+apps/web/out/
+*.tsbuildinfo
+.env.local
+.env.*.local
+apps/api/.venv/
+apps/api/data/
+apps/desktop/src-tauri/target/
+test-results/
+playwright-report/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+apps/web/next-env.d.ts

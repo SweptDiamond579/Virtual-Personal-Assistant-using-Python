@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>JARVIS OS</title>
+    <link rel="stylesheet" href="fallback.css" />
+  </head>
+  <body>
+    <main>
+      <div class="core" aria-hidden="true"><span></span></div>
+      <h1>JARVIS backend not reachable</h1>
+      <p>
+        The desktop app loads the JARVIS web UI from the local JARVIS backend
+        (by default <code>http://127.0.0.1:8000/</code>).
+      </p>
+      <p>Start the backend, then choose <strong>Reload JARVIS</strong> from the tray menu.</p>
+      <p class="hint">
+        To use a different address, set <code>JARVIS_URL</code> or the <code>url</code> field in
+        <code>jarvis-desktop/policy.json</code> in your configuration folder.
+      </p>
+    </main>
+  </body>
+</html>

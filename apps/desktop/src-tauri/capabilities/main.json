@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-window-remote",
+  "description": "The JARVIS web UI, loaded from the local JARVIS backend into the main window, may call the three JARVIS desktop commands and nothing else. No plugin or core permissions are granted.",
+  "windows": ["main"],
+  "local": false,
+  "remote": {
+    "urls": ["http://127.0.0.1:*", "http://localhost:*"]
+  },
+  "platforms": ["linux", "macOS", "windows"],
+  "permissions": ["allow-desktop-info", "allow-execute-action", "allow-set-emergency-stop"]
+}
