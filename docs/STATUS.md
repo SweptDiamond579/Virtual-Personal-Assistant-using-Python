@@ -18,7 +18,7 @@ Legend: ✅ verified working · 🟡 implemented, partially verified or limited 
 | 10 | Unauthorised actions denied | ✅ | Unknown tools, extra arguments, unavailable desktop, emergency stop, wrong approver kind (pytest + E2E) |
 | 11 | Desktop and mobile usable | ✅ / 🟡 | Mobile viewport E2E (no overflow, nav, core framed). Tauri app built and run under Xvfb with invoke round-trips; Windows/macOS installers configured but not built here |
 | 12 | Credentials not exposed | ✅ | E2E checks HttpOnly session and that no secret appears in page HTML; tokens encrypted at rest (pytest) |
-| 13 | Critical tests pass | ✅ | Backend 94 passed (+1 live-network test, passing when enabled); web unit 42; E2E 15; desktop 60 |
+| 13 | Critical tests pass | ✅ | Backend 94 passed (+1 live-network test, passing when enabled); web unit 42; E2E 15; desktop 60. All five GitHub Actions jobs green on commit c911e0b (backend, web, E2E, desktop, dependency audit) |
 
 ## Capabilities
 ### ✅ Verified
