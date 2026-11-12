@@ -1,9 +1,10 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Bell, Bot, Globe, KeyRound, Laptop, LogOut, MonitorCog, ShieldCheck, Volume2 } from "lucide-react";
+import { Bell, Bot, FolderGit2, Globe, KeyRound, Laptop, LogOut, MonitorCog, ShieldCheck, Volume2 } from "lucide-react";
 import { useState } from "react";
 import { DesktopPairing } from "@/components/DesktopPairing";
+import { DevProjects } from "@/components/DevProjects";
 import { PushControls } from "@/components/PushControls";
 import { TwoFactor } from "@/components/TwoFactor";
 import { refreshAuth } from "@/components/providers";
@@ -186,6 +187,8 @@ function SettingsForms({
         </Panel>
 
         <Panel title="Desktop companion" icon={Laptop}><DesktopPairing /></Panel>
+
+        <Panel title="Development projects" icon={FolderGit2}><DevProjects /></Panel>
 
         <Panel title="Two-factor authentication" icon={ShieldCheck}><TwoFactor /></Panel>
 
