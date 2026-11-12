@@ -1,0 +1,133 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main, "claude/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TEST_DATABASE_URL: postgresql+asyncpg://jarvis:jarvis-dev-password@127.0.0.1:5432/jarvis_test
+  E2E_DATABASE_URL: postgresql+asyncpg://jarvis:jarvis-dev-password@127.0.0.1:5432/jarvis_e2e
+
+jobs:
+  backend:
+    name: Backend (ruff + pytest)
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: jarvis
+          POSTGRES_PASSWORD: jarvis-dev-password
+          POSTGRES_DB: jarvis_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U jarvis" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq espeak-ng ffmpeg
+      - working-directory: apps/api
+        run: uv sync --frozen
+      - working-directory: apps/api
+        run: uv run playwright install --with-deps chromium
+      - working-directory: apps/api
+        run: uv run ruff check jarvis tests && uv run ruff format --check jarvis tests
+      - working-directory: apps/api
+        run: uv run pytest -q
+      - name: Migrations match the models
+        working-directory: apps/api
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+        run: |
+          uv run alembic upgrade head
+          uv run alembic check
+
+  web:
+    name: Web (typecheck + lint + unit + build)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @jarvis/protocol typecheck
+      - working-directory: apps/web
+        run: npx tsc --noEmit && npx eslint src && npx vitest run && npx next build
+      - uses: actions/upload-artifact@v4
+        with: { name: web-export, path: apps/web/out, retention-days: 3 }
+
+  e2e:
+    name: End-to-end (Playwright)
+    needs: [web]
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: jarvis
+          POSTGRES_PASSWORD: jarvis-dev-password
+          POSTGRES_DB: jarvis_e2e
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U jarvis" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq espeak-ng ffmpeg
+      - run: pnpm install --frozen-lockfile
+      - run: npx playwright install --with-deps chromium
+      - working-directory: apps/api
+        run: uv sync --frozen
+      - uses: actions/download-artifact@v4
+        with: { name: web-export, path: apps/web/out }
+      - run: npx playwright test -c tests/e2e/playwright.config.ts
+        env: { CI: "1" }
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with: { name: e2e-results, path: test-results, retention-days: 7 }
+
+  desktop:
+    name: Desktop (Rust policy tests + clippy)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { components: clippy, rustfmt }
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev libxdo-dev libssl-dev
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: apps/desktop/src-tauri }
+      - working-directory: apps/desktop/src-tauri
+        run: |
+          cargo fmt --all --check
+          cargo test --workspace
+          cargo clippy --workspace --all-targets -- -D warnings
+
+  security:
+    name: Dependency audit
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --prod --audit-level high
+      - working-directory: apps/api
+        run: uv sync --frozen && uv run pip-audit
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          working-directory: apps/desktop/src-tauri

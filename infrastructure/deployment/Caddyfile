@@ -1,0 +1,10 @@
+# Example private deployment: Caddy terminates TLS and forwards to the single JARVIS process.
+# Run the API with JARVIS_ENV=production, JARVIS_COOKIE_SECURE=true and
+# JARVIS_ALLOWED_ORIGINS=https://jarvis.example.com
+jarvis.example.com {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8000
+	header {
+		-Server
+	}
+}

@@ -1,0 +1,21 @@
+# Local infrastructure for JARVIS OS. The API and web app run on the host during development.
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: jarvis
+      POSTGRES_PASSWORD: jarvis-dev-password   # development only; change for any shared deployment
+      POSTGRES_DB: jarvis
+    ports:
+      - "127.0.0.1:5432:5432"                  # bound to localhost only
+    volumes:
+      - jarvis-pg:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jarvis"]
+      interval: 5s
+      retries: 10
+
+volumes:
+  jarvis-pg:
