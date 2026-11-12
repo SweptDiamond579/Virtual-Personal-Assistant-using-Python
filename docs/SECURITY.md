@@ -46,3 +46,4 @@ Cancels all active runs and pending approvals, blocks side-effecting tools, defe
 - **Single process:** rate limits and the event hub are in-memory.
 - **Browser STT:** choosing the browser speech engine sends audio to the browser vendor (Google in Chrome); the default is the offline server engine.
 - **No multi-user support:** the system is designed for one owner.
+- **Desktop dependency notices:** `cargo audit` reports no vulnerabilities, but two informational advisories in Tauri's Linux GTK stack: `proc-macro-error` unmaintained (RUSTSEC-2024-0370) and `glib` 0.18 `VariantStrIter` unsoundness (RUSTSEC-2024-0429, an API JARVIS does not call). They clear when Tauri moves to newer gtk-rs releases.

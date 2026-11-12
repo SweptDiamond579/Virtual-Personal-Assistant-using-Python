@@ -42,13 +42,16 @@ jobs:
         run: uv run ruff check jarvis tests && uv run ruff format --check jarvis tests
       - working-directory: apps/api
         run: uv run pytest -q
-      - name: Migrations match the models
+      - name: Migrations apply cleanly and match the models (fresh database)
         working-directory: apps/api
         env:
-          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+          PGPASSWORD: jarvis-dev-password
+          DATABASE_URL: postgresql+asyncpg://jarvis:jarvis-dev-password@127.0.0.1:5432/jarvis_migrations
         run: |
+          psql -h 127.0.0.1 -U jarvis -d jarvis_test -c "CREATE DATABASE jarvis_migrations"
           uv run alembic upgrade head
           uv run alembic check
+          uv run alembic downgrade base
 
   web:
     name: Web (typecheck + lint + unit + build)
@@ -127,7 +130,7 @@ jobs:
       - run: pnpm audit --prod --audit-level high
       - working-directory: apps/api
         run: uv sync --frozen && uv run pip-audit
-      - uses: rustsec/audit-check@v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          working-directory: apps/desktop/src-tauri
+      - uses: taiki-e/install-action@v2
+        with: { tool: cargo-audit }
+      - name: cargo audit (fails on vulnerabilities; unmaintained/unsound notices are reported)
+        run: cargo audit --file apps/desktop/src-tauri/Cargo.lock

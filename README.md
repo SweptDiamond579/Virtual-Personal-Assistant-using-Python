@@ -26,6 +26,7 @@ A secure, voice-controlled personal AI operating environment: a cinematic real-t
 ## Quick start (local development)
 
 Prerequisites: Node 22+, pnpm 10, Python 3.12+ with [uv](https://docs.astral.sh/uv/), PostgreSQL 16 with pgvector, and optionally `espeak-ng` (offline speech output) and `ffmpeg`.
+If you use your own PostgreSQL instead of the compose file, a superuser must run `CREATE EXTENSION vector;` in the JARVIS database once (the migration needs it and ordinary roles cannot create it).
 
 ```bash
 docker compose -f infrastructure/docker-compose.yml up -d postgres
