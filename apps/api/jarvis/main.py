@@ -95,7 +95,7 @@ def create_app() -> FastAPI:
     dist: Path = s.jarvis_web_dist
     if dist.is_dir():
 
-        @app.get("/{path:path}", include_in_schema=False)
+        @app.api_route("/{path:path}", methods=["GET", "HEAD"], include_in_schema=False)
         async def web(path: str) -> Response:
             if path.startswith("api/"):
                 return JSONResponse({"detail": "not found"}, status_code=404)

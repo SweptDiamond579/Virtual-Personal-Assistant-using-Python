@@ -18,7 +18,7 @@ from jarvis.tools.policy import DEFAULT_WEB_ALLOWLIST
 DEFAULTS: dict[str, Any] = {
     "tool_policies": {},
     "web_allowlist": DEFAULT_WEB_ALLOWLIST,
-    "voice": {"stt": "browser", "tts": "server", "voice": "en-gb", "rate": 1.0, "auto_speak": True},
+    "voice": {"stt": "server", "tts": "server", "voice": "en-gb", "rate": 1.0, "auto_speak": True},
     "interface": {"quality": "high", "render_mode": "3d", "reduced_motion": False, "show_stats": False},
     "notifications": {"desktop": True, "sound": False},
     "privacy": {"conversation_retention_days": 0, "memory_auto_propose": True},

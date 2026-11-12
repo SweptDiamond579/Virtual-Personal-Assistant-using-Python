@@ -152,9 +152,39 @@ async def run_job(job: ScheduledJob) -> None:
         await notify(job.user_id, f"Scheduled job failed: {job.name}", error or "", level="error", link="/automation")
 
 
+async def purge_expired_conversations(now: datetime | None = None) -> int:
+    """Apply each user's conversation retention setting (0 = keep forever)."""
+    from sqlalchemy import delete
+
+    from jarvis.db.models import Conversation, UserSetting
+
+    now = now or datetime.now(UTC)
+    deleted = 0
+    async with db_session() as db:
+        rows = (await db.execute(select(UserSetting).where(UserSetting.key == "privacy"))).scalars().all()
+        for row in rows:
+            days = int((row.value.get("v") or {}).get("conversation_retention_days") or 0)
+            if days <= 0:
+                continue
+            res = await db.execute(
+                delete(Conversation).where(
+                    Conversation.user_id == row.user_id, Conversation.updated_at < now - timedelta(days=days)
+                )
+            )
+            deleted += res.rowcount or 0
+        await db.commit()
+    if deleted:
+        log.info("retention purge", conversations=deleted)
+    return deleted
+
+
 async def tick(now: datetime | None = None) -> int:
     now = now or datetime.now(UTC)
     _state["last_tick"] = now.isoformat()
+    last_purge = _state.get("last_purge")
+    if last_purge is None or (now - last_purge).total_seconds() > 3600:
+        _state["last_purge"] = now
+        await purge_expired_conversations(now)
     jobs = await claim_due(now)
     for job in jobs:
         asyncio.create_task(run_job(job), name=f"job-{job.id}")

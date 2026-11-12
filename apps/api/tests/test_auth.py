@@ -88,3 +88,22 @@ async def test_security_headers(anon: httpx.AsyncClient) -> None:
     assert r.headers["x-content-type-options"] == "nosniff"
     assert r.headers["x-frame-options"] == "DENY"
     assert r.headers["cache-control"] == "no-store"
+
+
+async def test_static_export_served_for_get_and_head(tmp_path, monkeypatch) -> None:  # noqa: ANN001
+    import httpx as _httpx
+
+    from jarvis.config import get_settings
+    from jarvis.main import create_app
+
+    (tmp_path / "command").mkdir()
+    (tmp_path / "command" / "index.html").write_text("<html>core</html>")
+    monkeypatch.setattr(get_settings(), "jarvis_web_dist", tmp_path)
+    app = create_app()
+    async with _httpx.AsyncClient(transport=_httpx.ASGITransport(app=app), base_url="http://t") as c:
+        assert (await c.get("/command/")).text == "<html>core</html>"
+        head = await c.head("/command/")
+        assert head.status_code == 200  # Next.js prefetches with HEAD
+        assert "Content-Security-Policy" in head.headers
+        assert (await c.get("/../../etc/passwd")).status_code == 404
+        assert (await c.get("/api/nope")).status_code == 404

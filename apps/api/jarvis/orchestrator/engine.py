@@ -378,7 +378,32 @@ async def _run_command(run_id: str, user_id: str, tool: str, args: dict[str, Any
         await _finish(run_id, "failed", f"Internal error: {type(exc).__name__}")
 
 
+_conversation_locks: dict[str, asyncio.Lock] = {}
+
+
 async def _run_chat(run_id: str, text: str, client_kind: str | None, origin: str = "user") -> None:
+    """Runs in one conversation are serialised: a conversation's history is append-only and
+    must never interleave the turns of two concurrent runs."""
+    async with db_session() as db:
+        run = await db.get(Run, run_id)
+        conversation_id = run.conversation_id if run else None
+    if conversation_id is None:
+        return await _run_chat_locked(run_id, text, client_kind, origin)
+    lock = _conversation_locks.setdefault(conversation_id, asyncio.Lock())
+    try:
+        async with lock:
+            await _run_chat_locked(run_id, text, client_kind, origin)
+    except asyncio.CancelledError:
+        # Cancelled while still queued behind another run.
+        async with db_session() as db:
+            queued = await db.get(Run, run_id)
+            still_queued = queued is not None and queued.status == "queued"
+        if still_queued:
+            await _finish(run_id, "cancelled", "Cancelled before it started.")
+        raise
+
+
+async def _run_chat_locked(run_id: str, text: str, client_kind: str | None, origin: str = "user") -> None:
     settings = get_settings()
     async with db_session() as db:
         run = await db.get(Run, run_id)

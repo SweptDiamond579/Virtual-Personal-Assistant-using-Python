@@ -61,7 +61,7 @@ async def check_url(url: str) -> CheckedURL:
         port = parts.port
     except ValueError as exc:
         raise UnsafeURLError("invalid port") from exc
-    if port not in ALLOWED_PORTS:
+    if port not in ALLOWED_PORTS and not get_settings().private_network_allowed:
         raise UnsafeURLError(f"port {port} is not allowed")
     if host == "localhost" or host.endswith((".localhost", ".local", ".internal")):
         if not get_settings().private_network_allowed:

@@ -153,3 +153,4 @@ playwright-report/
 .ruff_cache/
 .mypy_cache/
 apps/web/next-env.d.ts
+tests/e2e/.auth/

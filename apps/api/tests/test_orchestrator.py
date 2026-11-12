@@ -268,3 +268,33 @@ async def test_daily_budget_enforced(owner: AuthedClient) -> None:
     r = await owner.post("/api/chat", json={"text": "what time is it"})
     run = await wait_status(r.json()["run"]["id"], {"succeeded", "failed"})
     assert run.status == "failed" and "budget" in (run.error or "").lower()
+
+
+async def test_concurrent_runs_in_one_conversation_are_serialised(owner: AuthedClient) -> None:
+    first = (await owner.post("/api/chat", json={"text": "write file a.md: one"})).json()
+    conv = first["run"]["conversation_id"]
+    # Second request arrives while the first is blocked on approval.
+    second = (await owner.post("/api/chat", json={"text": "note: Second | body", "conversation_id": conv})).json()
+    approval = await pending_approval(first["run"]["id"])
+    await asyncio.sleep(0.3)
+    async with db_session() as db:
+        r2 = await db.get(Run, second["run"]["id"])
+    assert r2 is not None and r2.status == "queued"  # waits its turn
+    await owner.post(f"/api/approvals/{approval.id}/decision", json={"approve": True})
+    await wait_status(first["run"]["id"], {"succeeded"})
+    await wait_status(second["run"]["id"], {"succeeded"})
+    async with db_session() as db:
+        rows = (
+            (
+                await db.execute(
+                    select(Message)
+                    .where(Message.conversation_id == conv, Message.visible.is_(False))
+                    .order_by(Message.created_at)
+                )
+            )
+            .scalars()
+            .all()
+        )
+    order = [m.run_id for m in rows]
+    # All of run 1's model-facing turns come before any of run 2's.
+    assert order == sorted(order, key=lambda rid: 0 if rid == first["run"]["id"] else 1)

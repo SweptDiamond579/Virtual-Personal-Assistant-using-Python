@@ -144,7 +144,8 @@ export default function CommandCentre() {
       )}
 
       <section aria-label="AI core" className="relative flex min-h-[46vh] flex-col md:min-h-0">
-        <div className="relative min-h-0 flex-1 overflow-hidden rounded-[18px] border border-line bg-[radial-gradient(70%_60%_at_50%_45%,rgb(14_29_52/0.9),rgb(1_3_9/0.6)_70%)]">
+        <div className="relative h-[44vh] min-h-[260px] overflow-hidden rounded-[18px] border border-line md:h-auto md:min-h-0 md:flex-1 bg-[radial-gradient(70%_60%_at_50%_45%,rgb(14_29_52/0.9),rgb(1_3_9/0.6)_70%)]">
+          <div className="absolute inset-0">
           <AICore
             state={state}
             levelRef={levelRef}
@@ -154,8 +155,8 @@ export default function CommandCentre() {
             active={visible}
             showStats={prefs.showStats}
             onNodeSelect={(n) => router.push(nodeRoutes[n])}
-            className="absolute inset-0"
           />
+          </div>
           <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between p-4">
             <div>
               <div className="data-label">Core state</div>
