@@ -82,6 +82,12 @@ class Settings(BaseSettings):
     # Only honoured when jarvis_env == "test": lets tests hit local fixture servers.
     jarvis_allow_private_network_for_tests: bool = False
 
+    # --- web push ---------------------------------------------------------
+    # PEM private key (P-256). If unset, one is generated in the data dir on first use.
+    jarvis_vapid_private_key: SecretStr | None = None
+    # Contact for push services (RFC 8292): a mailto: or https: URL you control.
+    jarvis_vapid_subject: str = "mailto:jarvis-owner@localhost"
+
     # --- scheduler --------------------------------------------------------
     jarvis_scheduler_enabled: bool = True
     jarvis_scheduler_poll_s: float = 2.0

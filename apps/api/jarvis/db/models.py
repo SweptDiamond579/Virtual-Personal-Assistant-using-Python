@@ -353,3 +353,18 @@ class Feedback(Base):
     rating: Mapped[int] = mapped_column(Integer)  # +1 / -1
     comment: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class PushSubscription(Base):
+    """A browser/PWA Web Push subscription (endpoint restricted to known push services)."""
+
+    __tablename__ = "push_subscriptions"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    endpoint: Mapped[str] = mapped_column(String(1000), unique=True)
+    p256dh: Mapped[str] = mapped_column(String(200))
+    auth: Mapped[str] = mapped_column(String(100))
+    user_agent: Mapped[str] = mapped_column(String(400), default="")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    last_success_at: Mapped[datetime | None]
+    failures: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))

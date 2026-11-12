@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Bell, Bot, Globe, KeyRound, Laptop, LogOut, MonitorCog, ShieldCheck, Volume2 } from "lucide-react";
 import { useState } from "react";
 import { DesktopPairing } from "@/components/DesktopPairing";
+import { PushControls } from "@/components/PushControls";
 import { TwoFactor } from "@/components/TwoFactor";
 import { refreshAuth } from "@/components/providers";
 import { Button, Chip, ErrorNote, FieldLabel, LoadingRows, PageHeader, Panel, Toggle, clsx } from "@/components/ui";
@@ -161,6 +162,7 @@ function SettingsForms({
         </Panel>
 
         <Panel title="Notifications" icon={Bell}>
+          <PushControls />
           <Row label="Browser notifications" hint="Shown when JARVIS is in a background tab.">
             {perm === "granted" ? <Chip tone="success">enabled</Chip> : (
               <Button className="h-8" onClick={async () => setPerm(await Notification.requestPermission())} disabled={perm === "denied"}>

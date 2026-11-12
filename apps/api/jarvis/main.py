@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
 import jarvis.tools.builtin  # noqa: F401  (registers tools)
-from jarvis.api import auth, automation, chat, devices, integrations, knowledge, realtime, system
+from jarvis.api import auth, automation, chat, devices, integrations, knowledge, push, realtime, system
 from jarvis.config import get_settings
 from jarvis.db.session import db_session, dispose_engine
 from jarvis.logging import configure_logging, get_logger
@@ -92,6 +92,7 @@ def create_app() -> FastAPI:
         automation.router,
         integrations.router,
         devices.router,
+        push.router,
         system.router,
     ):
         app.include_router(r)

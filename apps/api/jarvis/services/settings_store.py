@@ -20,7 +20,7 @@ DEFAULTS: dict[str, Any] = {
     "web_allowlist": DEFAULT_WEB_ALLOWLIST,
     "voice": {"stt": "server", "tts": "server", "voice": "en-gb", "rate": 1.0, "auto_speak": True},
     "interface": {"quality": "high", "render_mode": "3d", "reduced_motion": False, "show_stats": False},
-    "notifications": {"desktop": True, "sound": False},
+    "notifications": {"desktop": True, "sound": False, "push": True},
     "privacy": {"conversation_retention_days": 0, "memory_auto_propose": True},
     "budget": {"daily_usd": None},
     "watched_repos": [],

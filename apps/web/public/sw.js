@@ -32,3 +32,41 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(fetch(event.request).catch(() => caches.match(url.pathname).then((hit) => hit || caches.match("/command/"))));
   }
 });
+
+/* Web Push: show notifications even when JARVIS is closed. Payloads are encrypted end to end. */
+self.addEventListener("push", (event) => {
+  let msg = { title: "JARVIS", body: "", link: "/command/", level: "info" };
+  try {
+    if (event.data) msg = { ...msg, ...event.data.json() };
+  } catch {
+    /* non-JSON payload */
+  }
+  event.waitUntil(
+    self.registration.showNotification(msg.title, {
+      body: msg.body,
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
+      tag: msg.level === "approval" ? "jarvis-approval" : undefined,
+      requireInteraction: msg.level === "approval",
+      data: { link: msg.link || "/command/" },
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const raw = (event.notification.data && event.notification.data.link) || "/command/";
+  // Only same-origin, path-relative links may be opened.
+  const target = raw.startsWith("/") && !raw.startsWith("//") ? raw.replace(/^\/([a-z]+)(\?|$)/, "/$1/$2") : "/command/";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
+      for (const w of wins) {
+        if ("focus" in w) {
+          w.navigate(target);
+          return w.focus();
+        }
+      }
+      return self.clients.openWindow(target);
+    }),
+  );
+});
