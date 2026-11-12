@@ -178,3 +178,83 @@ async def create_issue(user_id: str, repo: str, title: str, body: str) -> dict[s
         issue = await gh.post(f"/repos/{repo}/issues", {"title": title, "body": body})
         verify = await gh.get(f"/repos/{repo}/issues/{issue['number']}")
     return {"number": issue["number"], "url": issue["html_url"], "verified": verify["title"] == title}
+
+
+BRANCH_RE = re.compile(r"^jarvis/[A-Za-z0-9._/-]{1,80}$")
+PROTECTED_PREFIXES = (".github/workflows/", ".github/actions/")
+
+
+def validate_change_path(path: str) -> str | None:
+    p = path.strip()
+    if not p or p.startswith("/") or "\\" in p or any(part in ("", ".", "..") for part in p.split("/")):
+        return f"invalid path {path!r}"
+    if p.startswith(".git/") or p == ".git":
+        return "cannot modify .git"
+    if p.startswith(PROTECTED_PREFIXES):
+        return f"{p}: CI workflow changes are not allowed (they could expose repository secrets)"
+    return None
+
+
+async def propose_change(
+    user_id: str, repo: str, *, base: str | None, branch: str, title: str, body: str, files: list[dict[str, str]]
+) -> dict[str, Any]:
+    """Create `branch` from `base` with one commit containing `files`, then open a DRAFT pull request.
+
+    Never pushes to an existing branch, never force-updates, never merges.
+    """
+    if not REPO_RE.match(repo):
+        raise GitHubError("Repository must be 'owner/name'.")
+    if not BRANCH_RE.match(branch) or ".." in branch:
+        raise GitHubError("Branch must start with 'jarvis/' and contain only letters, digits, . _ / -")
+    for f in files:
+        err = validate_change_path(f["path"])
+        if err:
+            raise GitHubError(err)
+    async with await client_for(user_id) as gh:
+        if not gh.authenticated:
+            raise GitHubError("Proposing changes requires a connected GitHub token with contents and PR write access.")
+        info = await gh.get(f"/repos/{repo}")
+        base = base or info["default_branch"]
+        try:
+            await gh.get(f"/repos/{repo}/git/ref/heads/{branch}")
+            raise GitHubError(f"Branch {branch} already exists; choose a new name (JARVIS never overwrites branches).")
+        except GitHubError as exc:
+            if exc.status != 404:
+                raise
+        base_ref = await gh.get(f"/repos/{repo}/git/ref/heads/{base}")
+        base_sha = base_ref["object"]["sha"]
+        base_commit = await gh.get(f"/repos/{repo}/git/commits/{base_sha}")
+        tree = await gh.post(
+            f"/repos/{repo}/git/trees",
+            {
+                "base_tree": base_commit["tree"]["sha"],
+                "tree": [{"path": f["path"], "mode": "100644", "type": "blob", "content": f["content"]} for f in files],
+            },
+        )
+        commit = await gh.post(
+            f"/repos/{repo}/git/commits",
+            {"message": f"{title}\n\nProposed by JARVIS for review.", "tree": tree["sha"], "parents": [base_sha]},
+        )
+        await gh.post(f"/repos/{repo}/git/refs", {"ref": f"refs/heads/{branch}", "sha": commit["sha"]})
+        pr = await gh.post(
+            f"/repos/{repo}/pulls",
+            {
+                "title": title,
+                "head": branch,
+                "base": base,
+                "draft": True,
+                "body": f"{body}\n\n---\n_Proposed by JARVIS as a draft for human review. Not merged automatically._",
+            },
+        )
+        check = await gh.get(f"/repos/{repo}/pulls/{pr['number']}")
+    return {
+        "number": pr["number"],
+        "url": pr["html_url"],
+        "branch": branch,
+        "base": base,
+        "commit": commit["sha"],
+        "files": [f["path"] for f in files],
+        "verified": bool(check.get("draft"))
+        and check["head"]["ref"] == branch
+        and check["head"]["sha"] == commit["sha"],
+    }

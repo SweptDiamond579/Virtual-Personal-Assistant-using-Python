@@ -131,7 +131,17 @@ async def read_one(
 
 # --------------------------------------------------------------------------- settings
 
-EDITABLE = {"voice", "interface", "notifications", "privacy", "budget", "web_allowlist", "watched_repos", "timezone"}
+EDITABLE = {
+    "voice",
+    "interface",
+    "notifications",
+    "privacy",
+    "budget",
+    "web_allowlist",
+    "watched_repos",
+    "timezone",
+    "dev_projects",
+}
 HOST_RE = re.compile(r"^(?=.{1,253}$)([a-z0-9-]{1,63}\.)+[a-z]{2,63}$")
 
 
@@ -161,6 +171,30 @@ class SettingBody(BaseModel):
     value: Any
 
 
+def _validate_projects(value: object) -> list[dict[str, str]]:
+    from pathlib import Path
+
+    if not isinstance(value, list) or len(value) > 50:
+        raise HTTPException(422, "dev_projects must be a list of {id, path}")
+    out: list[dict[str, str]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise HTTPException(422, "each project needs an id and a path")
+        pid, raw = str(item.get("id", "")), str(item.get("path", ""))
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,63}", pid):
+            raise HTTPException(422, f"invalid project id {pid!r} (lowercase letters, digits, . _ -)")
+        path = Path(raw)
+        if not path.is_absolute():
+            raise HTTPException(422, f"{pid}: path must be absolute")
+        resolved = path.resolve()
+        if not resolved.is_dir():
+            raise HTTPException(422, f"{pid}: {raw} is not a directory on the JARVIS server")
+        if resolved in (Path("/"), Path.home().resolve()) or len(resolved.parts) < 3:
+            raise HTTPException(422, f"{pid}: refusing a system or home root; register the project folder itself")
+        out.append({"id": pid, "path": str(resolved)})
+    return out
+
+
 @router.put("/settings/{key}")
 async def put_setting(
     key: str, body: SettingBody, ctx: SessionContext = Depends(current_session), db: AsyncSession = Depends(get_db)
@@ -178,6 +212,9 @@ async def put_setting(
     elif key == "watched_repos":
         if not isinstance(value, list) or not all(isinstance(v, str) and github.REPO_RE.match(v) for v in value):
             raise HTTPException(422, "watched_repos must be a list of owner/name strings")
+    elif key == "dev_projects":
+        value = _validate_projects(value)
+        await audit("settings.dev_projects", actor=ctx.actor, details={"projects": value}, db=db)
     elif key == "budget":
         daily = (value or {}).get("daily_usd")
         if daily is not None and not (isinstance(daily, int | float) and 0 <= daily <= 1000):

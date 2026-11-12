@@ -93,3 +93,54 @@ async def github_create_issue(args: IssueInput, ctx: ToolContext) -> ToolResult:
         verified=res["verified"],
         verification="Issue re-fetched from GitHub after creation.",
     )
+
+
+class FileChange(ToolInput):
+    path: str = Field(min_length=1, max_length=300)
+    content: str = Field(max_length=200_000)
+
+
+class ProposeInput(ToolInput):
+    repo: str = Field(pattern=r"^[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}$")
+    branch: str = Field(pattern=r"^jarvis/[A-Za-z0-9._/-]{1,80}$", description="New branch, must start with jarvis/")
+    title: str = Field(min_length=5, max_length=200)
+    body: str = Field(default="", max_length=20000, description="What changes and why, plus how it was checked.")
+    files: list[FileChange] = Field(min_length=1, max_length=20, description="Full new contents of each file.")
+    base: str | None = Field(default=None, max_length=100, description="Base branch (default: repository default)")
+
+
+@tool(
+    name="github_propose_change",
+    title="Propose code change (draft PR)",
+    description=(
+        "Create a new jarvis/* branch with one commit containing the given files and open a DRAFT pull request for "
+        "human review. Never pushes to existing branches, never merges, cannot modify CI workflows. Requires approval."
+    ),
+    input_model=ProposeInput,
+    category="development",
+    risk="high",
+    side_effects=True,
+    default_policy="ask",
+    requires={"github"},
+    timeout_s=90,
+)
+async def github_propose_change(args: ProposeInput, ctx: ToolContext) -> ToolResult:
+    try:
+        res = await github.propose_change(
+            ctx.user_id,
+            args.repo,
+            base=args.base,
+            branch=args.branch,
+            title=args.title,
+            body=args.body,
+            files=[f.model_dump() for f in args.files],
+        )
+    except github.GitHubError as exc:
+        return ToolResult.fail(str(exc))
+    return ToolResult(
+        ok=True,
+        summary=f"Opened draft PR #{res['number']} in {args.repo} from {res['branch']}.",
+        data=res,
+        verified=res["verified"],
+        verification="PR re-fetched: draft, head branch and commit match.",
+    )

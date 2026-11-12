@@ -29,7 +29,7 @@ class ToolInput(BaseModel):
 class ToolContext:
     user_id: str
     run_id: str | None
-    origin: Literal["user", "scheduler", "workflow", "command"] = "user"
+    origin: str = "user"  # user | scheduler | workflow | command | agent:<name>
     client_kind: str | None = None
     session_id: str | None = None
 

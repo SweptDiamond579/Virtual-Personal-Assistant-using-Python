@@ -24,6 +24,7 @@ DEFAULTS: dict[str, Any] = {
     "privacy": {"conversation_retention_days": 0, "memory_auto_propose": True},
     "budget": {"daily_usd": None},
     "watched_repos": [],
+    "dev_projects": [],
     "timezone": "UTC",
 }
 

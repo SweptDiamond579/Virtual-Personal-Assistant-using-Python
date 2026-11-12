@@ -40,6 +40,16 @@ from jarvis.providers.base import (
 
 RULES: list[tuple[re.Pattern[str], str, Any]] = [
     (
+        re.compile(r"delegate (?P<agent>research|development|productivity): (?P<task>.+)", re.I | re.S),
+        "delegate_task",
+        lambda m: {"agent": m["agent"].lower(), "task": m["task"].strip()},
+    ),
+    (
+        re.compile(r"run (?P<check>pytest|ruff) in (?P<project>[a-z0-9_.-]+)", re.I),
+        "dev_run_checks",
+        lambda m: {"project_id": m["project"], "check": m["check"].lower()},
+    ),
+    (
         re.compile(r"note:\s*(?P<title>[^|]+)\|?(?P<body>.*)", re.I | re.S),
         "notes_create",
         lambda m: {"title": m["title"].strip(), "body": m["body"].strip()},
@@ -108,6 +118,8 @@ class ScriptedProvider:
                 else:
                     parts.append(f"Done{verified}: {summary}")
             text = " ".join(parts)
+            if "specialist" in req.system:
+                text = json.dumps({"summary": text, "findings": parts, "sources": [], "confidence": 0.6})
             async for d in self._stream_text(text):
                 yield d
             usage.output_tokens = len(text) // 4

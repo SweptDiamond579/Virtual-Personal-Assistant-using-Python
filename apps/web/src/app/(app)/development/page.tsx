@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleCheck, CircleDot, CircleX, GitPullRequest, FolderGit2, Lightbulb, LineChart, Plus, X } from "lucide-react";
 import { useState } from "react";
 import { Button, Chip, EmptyState, ErrorNote, LoadingRows, PageHeader, Panel, Stat, clsx } from "@/components/ui";
-import { get } from "@/lib/api";
+import { get, post } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
 import { useSettings, useUpdateSetting } from "@/lib/hooks";
 
@@ -160,6 +160,72 @@ function SelfAnalysis() {
   );
 }
 
+interface EvalReport {
+  ran_at: string;
+  provider: string;
+  model: string;
+  pass_rate: number;
+  passed: number;
+  total: number;
+  cost_usd: number;
+  results: { id: string; category: string; passed: boolean; reason: string; tools_called: string[] }[];
+}
+
+function Evaluations() {
+  const qc = useQueryClient();
+  const { data } = useQuery({
+    queryKey: ["evals"],
+    queryFn: () => get<{ latest: EvalReport | null; running: boolean; error: string | null }>("/api/evals"),
+    refetchInterval: (q) => (q.state.data?.running ? 3000 : false),
+  });
+  const [error, setError] = useState<unknown>(null);
+  const latest = data?.latest;
+  return (
+    <Panel title="Evaluation" icon={LineChart}>
+      <p className="mb-3 text-xs text-ink-3">
+        Fixed cases measure tool selection, direct answers, prompt-injection resistance and privacy on one model turn
+        each. No tool is executed. Runs spend API credit (capped).
+      </p>
+      {latest ? (
+        <div className="space-y-3">
+          <div className="grid grid-cols-3 gap-3">
+            <Stat label="Pass rate" value={`${Math.round(latest.pass_rate * 100)}%`} tone={latest.pass_rate > 0.8 ? "success" : "amber"} />
+            <Stat label="Passed" value={`${latest.passed}/${latest.total}`} />
+            <Stat label="Cost" value={`$${latest.cost_usd.toFixed(3)}`} sub={`${latest.provider} · ${timeAgo(latest.ran_at)}`} />
+          </div>
+          <ul className="space-y-1 text-xs">
+            {latest.results.map((r) => (
+              <li key={r.id} className="flex items-center gap-2">
+                <Chip tone={r.passed ? "success" : "danger"}>{r.passed ? "pass" : "fail"}</Chip>
+                <span className="font-mono text-ice">{r.id}</span>
+                <span className="truncate text-ink-3" title={r.reason}>{r.passed ? r.category : r.reason}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <EmptyState title="No evaluation has been run yet" />
+      )}
+      <ErrorNote error={error ?? data?.error} />
+      <Button
+        className="mt-3"
+        loading={data?.running}
+        onClick={async () => {
+          setError(null);
+          try {
+            await post("/api/evals/run", { max_usd: 0.5, confirm_spend: true });
+            await qc.invalidateQueries({ queryKey: ["evals"] });
+          } catch (e) {
+            setError(e);
+          }
+        }}
+      >
+        Run evaluation (max $0.50)
+      </Button>
+    </Panel>
+  );
+}
+
 export default function Development() {
   const qc = useQueryClient();
   const { data: settings } = useSettings();
@@ -202,7 +268,10 @@ export default function Development() {
             <RepoCard key={r} repo={r} onRemove={() => void save(watched.filter((x) => x !== r))} />
           ))}
         </div>
-        <SelfAnalysis />
+        <div className="flex flex-col gap-4">
+          <SelfAnalysis />
+          <Evaluations />
+        </div>
       </div>
     </>
   );
