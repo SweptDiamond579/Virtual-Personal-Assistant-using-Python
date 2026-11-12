@@ -154,3 +154,6 @@ playwright-report/
 .mypy_cache/
 apps/web/next-env.d.ts
 tests/e2e/.auth/
+
+# Claude Code agent worktrees
+.claude/worktrees/
