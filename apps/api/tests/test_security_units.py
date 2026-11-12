@@ -163,3 +163,61 @@ def test_encryption_roundtrip_and_tamper() -> None:
 def test_canonical_hash_order_independent() -> None:
     assert canonical_hash({"a": 1, "b": 2}) == canonical_hash({"b": 2, "a": 1})
     assert canonical_hash({"a": 1}) != canonical_hash({"a": 2})
+
+
+async def test_pinned_transport_connects_only_to_checked_ip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """DNS rebinding: after the check, the connection must go to the checked IP, not a re-resolution."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    from jarvis.config import get_settings
+    from jarvis.security import ssrf
+
+    seen: dict[str, str] = {}
+
+    class H(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            seen["host"] = self.headers.get("Host", "")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"pinned ok")
+
+        def log_message(self, *a: object) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    port = server.server_address[1]
+    monkeypatch.setattr(get_settings(), "jarvis_allow_private_network_for_tests", True)
+
+    async def fake_check(url: str) -> ssrf.CheckedURL:
+        # The check "resolves" rebinding.test to 127.0.0.1 (the checked, allowed address).
+        return ssrf.CheckedURL(url=url, host="rebinding.test", addresses=("127.0.0.1",))
+
+    monkeypatch.setattr(ssrf, "check_url", fake_check)
+    try:
+        res = await ssrf.safe_fetch(f"http://rebinding.test:{port}/x")
+    finally:
+        server.shutdown()
+    # Real DNS for rebinding.test does not exist: success proves the socket went to the pinned IP,
+    # while the Host header kept the original name.
+    assert res.status == 200 and res.text == "pinned ok"
+    assert seen["host"] == f"rebinding.test:{port}"
+
+
+async def test_pinned_backend_refuses_unchecked_hosts() -> None:
+    import httpcore
+
+    from jarvis.security.ssrf import PinnedBackend
+
+    backend = PinnedBackend({"good.example": "93.184.216.34"})
+    with pytest.raises(httpcore.ConnectError):
+        await backend.connect_tcp("evil.example", 80)
+
+
+def test_pinned_client_wires_backend_into_pool() -> None:
+    from jarvis.security.ssrf import PinnedBackend, pinned_client
+
+    client = pinned_client({}, timeout=1)
+    assert isinstance(client._transport._pool._network_backend, PinnedBackend)  # noqa: SLF001

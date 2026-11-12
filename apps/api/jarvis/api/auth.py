@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from jarvis.config import get_settings
 from jarvis.db.models import AuthSession, User
 from jarvis.db.session import get_db
+from jarvis.security import totp
 from jarvis.security.audit import audit
 from jarvis.security.auth import (
     SESSION_COOKIE,
@@ -39,6 +40,7 @@ class LoginBody(BaseModel):
     username: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=1, max_length=256)
     client_kind: Literal["web", "mobile"] = "web"
+    otp: str | None = Field(default=None, max_length=32, description="TOTP or recovery code when 2FA is enabled")
 
 
 def _user_dto(u: User) -> dict[str, str]:
@@ -53,6 +55,7 @@ async def auth_state(request: Request, db: AsyncSession = Depends(get_db)) -> di
         "setup_required": users == 0,
         "authenticated": ctx is not None,
         "user": _user_dto(ctx.user) if ctx else None,
+        "totp_enabled": bool(ctx and ctx.user.totp_enabled),
         "session": {
             "id": ctx.session.id,
             "client_kind": ctx.session.client_kind,
@@ -110,6 +113,14 @@ async def login(body: LoginBody, request: Request, response: Response, db: Async
             "auth.login_failed", actor="anonymous", outcome="denied", ip=ip, details={"username": body.username}
         )
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid username or password")
+    if user.totp_enabled:
+        if not body.otp:
+            # Password was correct; ask for the second factor without creating a session.
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "totp_required")
+        if not totp.verify_second_factor(user, body.otp):
+            await audit("auth.totp_failed", actor=f"user:{user.id}", outcome="denied", ip=ip, db=db)
+            await db.commit()
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid authentication code")
     raw, sess = await create_session(
         db, user, client_kind=body.client_kind, user_agent=request.headers.get("user-agent", ""), ip=ip
     )
@@ -201,3 +212,66 @@ async def change_password(
     await audit("auth.password_changed", actor=ctx.actor, db=db)
     await db.commit()
     return {"ok": True, "revoked_sessions": len(others)}
+
+
+# --------------------------------------------------------------------------- two-factor (TOTP)
+
+
+class TotpConfirm(BaseModel):
+    code: str = Field(min_length=6, max_length=8)
+
+
+class TotpDisable(BaseModel):
+    password: str = Field(min_length=1, max_length=256)
+    code: str = Field(min_length=6, max_length=32)
+
+
+@router.post("/totp/setup")
+async def totp_setup(ctx: SessionContext = Depends(current_session), db: AsyncSession = Depends(get_db)) -> dict:
+    user = await db.get(User, ctx.user.id)
+    assert user is not None
+    if user.totp_enabled:
+        raise HTTPException(409, "two-factor authentication is already enabled")
+    secret = totp.new_secret()
+    totp.store_pending_secret(user, secret)
+    await db.commit()
+    uri = totp.provisioning_uri(secret, user.username)
+    return {"secret": secret, "otpauth_uri": uri, "qr_svg": totp.qr_svg(uri)}
+
+
+@router.post("/totp/enable")
+async def totp_enable(
+    body: TotpConfirm, ctx: SessionContext = Depends(current_session), db: AsyncSession = Depends(get_db)
+) -> dict:
+    user = await db.get(User, ctx.user.id)
+    assert user is not None
+    if user.totp_enabled or not user.totp_secret_encrypted:
+        raise HTTPException(409, "start setup first")
+    if not totp.verify_totp(user, body.code):
+        raise HTTPException(400, "code did not match; check your authenticator's clock")
+    user.totp_enabled = True
+    codes = totp.make_recovery_codes(user)
+    await audit("auth.totp_enabled", actor=ctx.actor, db=db)
+    await db.commit()
+    return {"enabled": True, "recovery_codes": codes}
+
+
+@router.post("/totp/disable")
+async def totp_disable(
+    body: TotpDisable, ctx: SessionContext = Depends(current_session), db: AsyncSession = Depends(get_db)
+) -> dict:
+    user = await db.get(User, ctx.user.id)
+    assert user is not None
+    if not user.totp_enabled:
+        raise HTTPException(409, "two-factor authentication is not enabled")
+    if not verify_password(user.password_hash, body.password) or not totp.verify_second_factor(user, body.code):
+        await audit("auth.totp_disable_failed", actor=ctx.actor, outcome="denied", db=db)
+        await db.commit()
+        raise HTTPException(403, "password or code incorrect")
+    user.totp_enabled = False
+    user.totp_secret_encrypted = None
+    user.totp_recovery_hashes = []
+    user.totp_last_step = None
+    await audit("auth.totp_disabled", actor=ctx.actor, db=db)
+    await db.commit()
+    return {"enabled": False}

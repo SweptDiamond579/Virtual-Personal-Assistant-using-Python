@@ -18,6 +18,8 @@ from sqlalchemy import (
     LargeBinary,
     String,
     Text,
+    false,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -43,6 +45,11 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(64), unique=True)
     display_name: Mapped[str] = mapped_column(String(120), default="")
     password_hash: Mapped[str] = mapped_column(String(255))
+    # Optional TOTP second factor: secret Fernet-encrypted; recovery codes stored as SHA-256 hashes.
+    totp_secret_encrypted: Mapped[bytes | None] = mapped_column(LargeBinary)
+    totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    totp_recovery_hashes: Mapped[list[str]] = mapped_column(JsonType, default=list, server_default=text("'[]'"))
+    totp_last_step: Mapped[int | None] = mapped_column(Integer)  # replay protection
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 

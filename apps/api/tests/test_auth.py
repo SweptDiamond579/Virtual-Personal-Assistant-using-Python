@@ -107,3 +107,37 @@ async def test_static_export_served_for_get_and_head(tmp_path, monkeypatch) -> N
         assert "Content-Security-Policy" in head.headers
         assert (await c.get("/../../etc/passwd")).status_code == 404
         assert (await c.get("/api/nope")).status_code == 404
+
+
+async def test_totp_enrolment_login_replay_and_recovery(anon) -> None:  # noqa: ANN001
+    import pyotp
+
+    owner = await make_owner(anon)
+    setup = (await owner.post("/api/auth/totp/setup")).json()
+    assert setup["otpauth_uri"].startswith("otpauth://totp/") and "<svg" in setup["qr_svg"]
+    totp = pyotp.TOTP(setup["secret"])
+    assert (await owner.post("/api/auth/totp/enable", json={"code": "000000"})).status_code == 400
+    enabled = await owner.post("/api/auth/totp/enable", json={"code": totp.now()})
+    assert enabled.status_code == 200
+    codes = enabled.json()["recovery_codes"]
+    assert len(codes) == 10
+
+    anon.cookies.clear()
+    creds = {"username": "tony", "password": PASSWORD}
+    r = await anon.post("/api/auth/login", json=creds)
+    assert r.status_code == 401 and r.json()["detail"] == "totp_required"
+    assert "jarvis_session" not in r.cookies
+    assert (await anon.post("/api/auth/login", json={**creds, "otp": "123456"})).status_code == 401
+
+    # The code used at enable already consumed this time step: reuse must fail (replay protection).
+    assert (await anon.post("/api/auth/login", json={**creds, "otp": totp.now()})).status_code == 401
+    # A code for the next time step works once.
+    nxt = totp.at(int(__import__("time").time()) + 30)
+    assert (await anon.post("/api/auth/login", json={**creds, "otp": nxt})).status_code == 200
+    anon.cookies.clear()
+    assert (await anon.post("/api/auth/login", json={**creds, "otp": nxt})).status_code == 401
+
+    # Recovery codes work exactly once.
+    assert (await anon.post("/api/auth/login", json={**creds, "otp": codes[0]})).status_code == 200
+    anon.cookies.clear()
+    assert (await anon.post("/api/auth/login", json={**creds, "otp": codes[0]})).status_code == 401

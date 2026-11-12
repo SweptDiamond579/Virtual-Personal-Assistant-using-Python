@@ -44,7 +44,7 @@ interface StreamBuffer {
 }
 
 export interface JarvisState {
-  auth: { status: AuthStatus; user: SessionUser | null; session: SessionInfo | null };
+  auth: { status: AuthStatus; user: SessionUser | null; session: SessionInfo | null; totpEnabled?: boolean };
   connection: "connecting" | "open" | "closed";
   system: SystemStatus | null;
   runs: Record<string, RunSummary>;

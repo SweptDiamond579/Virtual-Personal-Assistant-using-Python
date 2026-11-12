@@ -14,10 +14,13 @@ import uuid
 from playwright.async_api import Route, async_playwright
 
 from jarvis.config import get_settings
-from jarvis.security.ssrf import UnsafeURLError, check_url
+from jarvis.security.ssrf import UnsafeURLError, check_url, safe_fetch
 from jarvis.tools.base import ToolResult
 
 MAX_TEXT = 12000
+MAX_RESOURCES = 150
+MAX_RESOURCE_BYTES = 5_000_000
+FORWARD_HEADERS = {"content-type", "content-language", "cache-control", "last-modified", "etag"}
 _lock = asyncio.Semaphore(2)  # resource limit: at most two concurrent browser tasks
 
 
@@ -39,17 +42,29 @@ async def snapshot(url: str, *, user_id: str) -> ToolResult:
                 user_agent="JARVIS-OS/0.1 (headless research)",
             )
 
+            fetched = {"count": 0}
+
             async def guard(route: Route) -> None:
-                req_url = route.request.url
-                if req_url.startswith(("data:", "blob:")):
+                """Serve every network request through the SSRF-checked, IP-pinned fetcher.
+
+                Chromium never resolves DNS or opens sockets itself, so a page cannot
+                rebind a hostname to a private address between check and connect.
+                """
+                req = route.request
+                if req.url.startswith(("data:", "blob:")):
                     await route.continue_()
                     return
+                if req.method != "GET" or fetched["count"] >= MAX_RESOURCES:
+                    await route.abort("blockedbyclient")  # research browsing never submits data
+                    return
+                fetched["count"] += 1
                 try:
-                    await check_url(req_url)
-                except UnsafeURLError:
+                    res = await safe_fetch(req.url, max_bytes=MAX_RESOURCE_BYTES, timeout=20)
+                except Exception:  # unsafe URL, network error, oversize
                     await route.abort("blockedbyclient")
                     return
-                await route.continue_()
+                headers = {k: v for k, v in (res.headers or {}).items() if k in FORWARD_HEADERS}
+                await route.fulfill(status=res.status, headers=headers, body=res.content)
 
             await context.route("**/*", guard)
             page = await context.new_page()

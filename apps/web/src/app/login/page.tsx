@@ -23,6 +23,8 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [setupToken, setSetupToken] = useState("");
+  const [otp, setOtp] = useState("");
+  const [needOtp, setNeedOtp] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const setup = status === "setup";
@@ -40,11 +42,21 @@ export default function LoginPage() {
       if (setup) {
         await post("/api/auth/setup", { setup_token: setupToken, username, password, display_name: displayName });
       } else {
-        await post("/api/auth/login", { username, password, client_kind: isMobile ? "mobile" : "web" });
+        await post("/api/auth/login", {
+          username,
+          password,
+          client_kind: isMobile ? "mobile" : "web",
+          ...(needOtp ? { otp } : {}),
+        });
       }
       await refreshAuth();
     } catch (err) {
-      setError(err);
+      if (err instanceof Error && err.message === "totp_required") {
+        setNeedOtp(true);
+        setError(null);
+      } else {
+        setError(err);
+      }
     } finally {
       setBusy(false);
     }
@@ -106,6 +118,23 @@ export default function LoginPage() {
               required
             />
           </div>
+          {needOtp && (
+            <div>
+              <FieldLabel htmlFor="otp">Authentication code</FieldLabel>
+              <input
+                id="otp"
+                className="field font-mono tracking-[0.3em]"
+                value={otp}
+                onChange={(e) => setOtp(e.target.value)}
+                autoComplete="one-time-code"
+                inputMode="text"
+                placeholder="123456 or recovery code"
+                autoFocus
+                required
+              />
+              <p className="mt-1 text-[11px] text-ink-4">Enter the 6-digit code from your authenticator app, or a recovery code.</p>
+            </div>
+          )}
           <ErrorNote error={error} />
           <Button type="submit" variant="primary" className="w-full" loading={busy} icon={setup ? KeyRound : ArrowRight}>
             {setup ? "Create owner account" : "Sign in"}

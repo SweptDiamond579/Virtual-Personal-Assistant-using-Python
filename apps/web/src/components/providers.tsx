@@ -14,6 +14,7 @@ interface AuthState {
   authenticated: boolean;
   user: SessionUser | null;
   session: SessionInfo | null;
+  totp_enabled?: boolean;
 }
 
 export async function refreshAuth(): Promise<AuthState | null> {
@@ -25,6 +26,7 @@ export async function refreshAuth(): Promise<AuthState | null> {
       status: state.authenticated ? "authenticated" : state.setup_required ? "setup" : "anonymous",
       user: state.user,
       session: state.session,
+      totpEnabled: state.totp_enabled ?? false,
     });
     return state;
   } catch {
