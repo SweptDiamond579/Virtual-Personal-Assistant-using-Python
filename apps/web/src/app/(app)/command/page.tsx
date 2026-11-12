@@ -15,7 +15,7 @@ import { timeAgo, usd } from "@/lib/format";
 import { useCoreState, useInterfacePrefs, useMediaQuery, usePageVisible, useVoicePrefs } from "@/lib/hooks";
 import { onServerEvent } from "@/lib/realtime";
 import { useActiveRuns, useJarvis, useShallowJarvis } from "@/lib/store";
-import { levelRef, voice } from "@/lib/voice";
+import { levelRef, splitSentences, voice } from "@/lib/voice";
 
 const QUICK = [
   "Give me a quick status briefing",
@@ -109,15 +109,30 @@ export default function CommandCentre() {
   const mobile = useMediaQuery("(max-width: 767px)");
   const voiceRuns = useRef(new Set<string>());
 
-  // Speak replies to voice requests (Settings → Voice → auto-speak).
+  // Speak replies to voice requests (Settings → Voice → auto-speak). Speech streams:
+  // each complete sentence is synthesised and played while the model keeps writing.
+  const speechBuffers = useRef(new Map<string, string>());
   useEffect(
     () =>
       onServerEvent((e) => {
-        if (e.type !== "assistant.completed") return;
-        const runId = e.data.message.run_id ?? "";
-        const fromVoice = voiceRuns.current.delete(runId);
-        if (fromVoice && voicePrefs.autoSpeak && voicePrefs.tts !== "off") {
-          void voice.speak(e.data.message.content, voicePrefs).catch(() => undefined);
+        const enabled = voicePrefs.autoSpeak && voicePrefs.tts !== "off";
+        if (e.type === "assistant.delta" && e.run_id && voiceRuns.current.has(e.run_id) && enabled) {
+          const { sentences, rest } = splitSentences((speechBuffers.current.get(e.run_id) ?? "") + e.data.text);
+          speechBuffers.current.set(e.run_id, rest);
+          for (const sentence of sentences) voice.enqueueSpeech(sentence, voicePrefs);
+          return;
+        }
+        if (e.type === "assistant.completed") {
+          const runId = e.data.message.run_id ?? "";
+          const fromVoice = voiceRuns.current.delete(runId);
+          const tail = speechBuffers.current.get(runId);
+          speechBuffers.current.delete(runId);
+          if (!fromVoice || !enabled) return;
+          if (tail === undefined) {
+            void voice.speak(e.data.message.content, voicePrefs).catch(() => undefined); // nothing streamed
+          } else {
+            for (const sentence of splitSentences(tail, true).sentences) voice.enqueueSpeech(sentence, voicePrefs);
+          }
         }
       }),
     [voicePrefs],

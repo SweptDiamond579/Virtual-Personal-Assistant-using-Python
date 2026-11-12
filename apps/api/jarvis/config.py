@@ -82,6 +82,12 @@ class Settings(BaseSettings):
     # Only honoured when jarvis_env == "test": lets tests hit local fixture servers.
     jarvis_allow_private_network_for_tests: bool = False
 
+    # --- memory embeddings ------------------------------------------------
+    jarvis_embeddings_provider: Literal["hashing", "openai_compatible"] = "hashing"
+    jarvis_embeddings_base_url: str | None = None
+    jarvis_embeddings_model: str = "text-embedding-3-small"
+    jarvis_embeddings_api_key: SecretStr | None = None
+
     # --- web push ---------------------------------------------------------
     # PEM private key (P-256). If unset, one is generated in the data dir on first use.
     jarvis_vapid_private_key: SecretStr | None = None

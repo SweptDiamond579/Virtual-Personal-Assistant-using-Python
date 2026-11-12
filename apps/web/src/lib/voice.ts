@@ -220,55 +220,107 @@ class VoiceEngine {
     return { text: res.text, engine: res.engine };
   }
 
-  async speak(text: string, prefs: VoicePrefs): Promise<void> {
-    const clean = text.replace(/[`*_#>]/g, "").replace(/\[(.*?)\]\(.*?\)/g, "$1").trim().slice(0, 2800);
-    if (!clean || prefs.tts === "off") return;
-    this.stopSpeaking();
-    const store = useJarvis.getState();
-    if (prefs.tts === "browser" && "speechSynthesis" in window) {
-      const u = new SpeechSynthesisUtterance(clean);
-      u.rate = prefs.rate;
-      // Approximate envelope from word boundaries (browser TTS exposes no audio stream).
-      u.onboundary = () => {
-        levelRef.current = 0.55 + Math.random() * 0.35;
-        setTimeout(() => (levelRef.current *= 0.4), 120);
-      };
-      store.setSpeaking(true);
-      await new Promise<void>((resolve) => {
-        u.onend = u.onerror = () => resolve();
-        speechSynthesis.speak(u);
+  // ---- speech output ------------------------------------------------------
+  // Sentences are queued as they stream in; audio for the next sentence is
+  // synthesised while the current one plays. `generation` invalidates the queue
+  // on barge-in or a new reply.
+  private queue: { text: string; audio: Promise<AudioBuffer | null> | null }[] = [];
+  private draining = false;
+  private generation = 0;
+
+  private cleanForSpeech(text: string): string {
+    return text.replace(/[`*_#>]/g, "").replace(/\[(.*?)\]\(.*?\)/g, "$1").trim().slice(0, 2800);
+  }
+
+  private async fetchAudio(text: string, prefs: VoicePrefs): Promise<AudioBuffer | null> {
+    try {
+      const res = await api<Response>("/api/voice/speak", {
+        method: "POST",
+        body: { text, voice: prefs.voice, rate: prefs.rate },
+        raw: true,
       });
-      levelRef.current = 0;
-      store.setSpeaking(false);
-      return;
+      return await this.audioCtx().decodeAudioData(await res.arrayBuffer());
+    } catch {
+      return null;
     }
-    const res = await api<Response>("/api/voice/speak", {
-      method: "POST",
-      body: { text: clean, voice: prefs.voice, rate: prefs.rate },
-      raw: true,
-    });
+  }
+
+  private async playBuffer(buffer: AudioBuffer): Promise<void> {
     const ctx = this.audioCtx();
     await ctx.resume();
-    const buffer = await ctx.decodeAudioData(await res.arrayBuffer());
     const src = ctx.createBufferSource();
     src.buffer = buffer;
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 1024;
     src.connect(analyser).connect(ctx.destination);
     this.playback = src;
-    store.setSpeaking(true);
     this.meter(analyser);
     await new Promise<void>((resolve) => {
       src.onended = () => resolve();
       src.start();
     });
     if (this.playback === src) this.playback = null;
-    cancelAnimationFrame(this.raf);
-    levelRef.current = 0;
-    store.setSpeaking(false);
+  }
+
+  private speakBrowser(text: string, prefs: VoicePrefs): Promise<void> {
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = prefs.rate;
+    // Approximate envelope from word boundaries (browser TTS exposes no audio stream).
+    u.onboundary = () => {
+      levelRef.current = 0.55 + Math.random() * 0.35;
+      setTimeout(() => (levelRef.current *= 0.4), 120);
+    };
+    return new Promise<void>((resolve) => {
+      u.onend = u.onerror = () => resolve();
+      speechSynthesis.speak(u);
+    });
+  }
+
+  /** Queue a sentence (or any chunk) for speech; starts playing immediately if idle. */
+  enqueueSpeech(text: string, prefs: VoicePrefs): void {
+    const clean = this.cleanForSpeech(text);
+    if (!clean || prefs.tts === "off") return;
+    const serverAudio = !(prefs.tts === "browser" && "speechSynthesis" in window);
+    this.queue.push({ text: clean, audio: serverAudio ? this.fetchAudio(clean, prefs) : null });
+    if (!this.draining) void this.drain(prefs);
+  }
+
+  private async drain(prefs: VoicePrefs): Promise<void> {
+    const gen = this.generation;
+    this.draining = true;
+    const store = useJarvis.getState();
+    store.setSpeaking(true);
+    try {
+      while (this.queue.length && gen === this.generation) {
+        const item = this.queue.shift()!;
+        if (item.audio) {
+          const buffer = await item.audio;
+          if (buffer && gen === this.generation) await this.playBuffer(buffer);
+        } else {
+          await this.speakBrowser(item.text, prefs);
+        }
+      }
+    } finally {
+      if (gen === this.generation) {
+        this.draining = false;
+        cancelAnimationFrame(this.raf);
+        levelRef.current = 0;
+        store.setSpeaking(false);
+      }
+    }
+  }
+
+  /** Speak a complete text (replaces anything currently queued). */
+  async speak(text: string, prefs: VoicePrefs): Promise<void> {
+    this.stopSpeaking();
+    for (const sentence of splitSentences(text, true).sentences) this.enqueueSpeech(sentence, prefs);
+    while (this.draining || this.queue.length) await new Promise((r) => setTimeout(r, 100));
   }
 
   stopSpeaking() {
+    this.generation++;
+    this.queue = [];
+    this.draining = false;
     if (this.playback) {
       try {
         this.playback.stop();
@@ -287,3 +339,34 @@ class VoiceEngine {
 }
 
 export const voice = new VoiceEngine();
+
+/**
+ * Splits streamed text into speakable sentences. Returns complete sentences and the
+ * unfinished remainder. Very short sentences are merged so each clip is worth a request.
+ */
+export function splitSentences(buffer: string, flush = false, minChars = 24): { sentences: string[]; rest: string } {
+  const sentences: string[] = [];
+  let rest = buffer;
+  const boundary = /([.!?…]+["')\]]?)(\s+)|\n{2,}/g;
+  let last = 0;
+  let pending = "";
+  let m: RegExpExecArray | null;
+  while ((m = boundary.exec(buffer))) {
+    const end = m.index + (m[1]?.length ?? 0);
+    const piece = buffer.slice(last, end).trim();
+    last = m.index + m[0].length;
+    if (!piece) continue;
+    pending = pending ? `${pending} ${piece}` : piece;
+    if (pending.length >= minChars) {
+      sentences.push(pending);
+      pending = "";
+    }
+  }
+  rest = buffer.slice(last);
+  if (pending) rest = `${pending} ${rest}`.trimStart();
+  if (flush && rest.trim()) {
+    sentences.push(rest.trim());
+    rest = "";
+  }
+  return { sentences, rest };
+}

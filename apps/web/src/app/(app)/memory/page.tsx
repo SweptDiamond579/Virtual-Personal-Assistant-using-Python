@@ -90,6 +90,43 @@ function MemoryCard({ m, all }: { m: MemoryItem & { score?: number }; all: Memor
   );
 }
 
+function EmbeddingPanel() {
+  const qc = useQueryClient();
+  const { data } = useQuery({
+    queryKey: ["memories", "embeddings"],
+    queryFn: () => get<{ active: string; stale: number; counts: Record<string, number> }>("/api/memories/embeddings/status"),
+  });
+  const [busy, setBusy] = useState(false);
+  if (!data) return null;
+  const semantic = data.active !== "hashing-v1";
+  return (
+    <Panel title="Retrieval engine" icon={Brain}>
+      <p className="text-xs text-ink-3">
+        Embedder: <span className="font-mono text-ice">{data.active}</span>{" "}
+        <Chip tone={semantic ? "success" : "amber"}>{semantic ? "semantic" : "lexical"}</Chip>
+      </p>
+      {!semantic && (
+        <p className="mt-2 text-[11px] text-ink-4">
+          Local word-hashing finds memories that share words with your question. Set JARVIS_EMBEDDINGS_PROVIDER=openai_compatible on the server for meaning-based search.
+        </p>
+      )}
+      {data.stale > 0 && (
+        <Button className="mt-3 w-full" loading={busy} onClick={async () => {
+          setBusy(true);
+          try {
+            await post("/api/memories/embeddings/reembed");
+            await qc.invalidateQueries({ queryKey: ["memories"] });
+          } finally {
+            setBusy(false);
+          }
+        }}>
+          Re-embed {data.stale} memor{data.stale === 1 ? "y" : "ies"}
+        </Button>
+      )}
+    </Panel>
+  );
+}
+
 export default function MemoryCentre() {
   const qc = useQueryClient();
   const [q, setQ] = useState("");
@@ -187,6 +224,7 @@ export default function MemoryCentre() {
               ))}
             </div>
           </Panel>
+          <EmbeddingPanel />
           <Panel title="Delete everything" icon={Trash2}>
             <p className="mb-2 text-xs text-ink-3">Permanently deletes all memories. Type <span className="font-mono text-danger">DELETE ALL</span> to confirm.</p>
             <input className="field mb-2" value={confirm} onChange={(e) => setConfirm(e.target.value)} aria-label="Confirmation phrase" />

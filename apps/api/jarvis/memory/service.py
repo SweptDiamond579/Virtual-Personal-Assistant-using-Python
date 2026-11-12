@@ -11,16 +11,15 @@ Pipeline
 - Retrieval: hybrid score = 0.65 * vector cosine + 0.35 * keyword overlap, over
   active, unexpired, model-shareable memories. Retrieval marks `last_used_at`.
 
-Embeddings: the default `HashingEmbedder` is local and deterministic (feature
-hashing of words, bigrams and character trigrams). It captures lexical overlap,
-not deep semantics; an OpenAI-compatible embeddings endpoint can replace it via
-JARVIS_EMBEDDINGS_* settings in a future iteration (docs/ROADMAP.md).
+Embeddings come from `jarvis.memory.embeddings`: local feature hashing by default
+(lexical), or any OpenAI-compatible embeddings endpoint for semantic retrieval.
+Vectors are only compared with vectors from the same embedder; keyword matches
+over all memories are always included so nothing becomes unreachable while
+`reembed_all` migrates stored vectors after a provider change.
 """
 
 from __future__ import annotations
 
-import hashlib
-import math
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -29,13 +28,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from jarvis.db.models import Memory
-
-DIM = 384
-_WORD = re.compile(r"[a-z0-9][a-z0-9'_-]*")
-_STOP = set(
-    "a an the and or but of to in on at for with is are was were be been it this that i me my you your "
-    "we our they them he she his her its as by from not do does did so if then than about into".split()
-)
+from jarvis.memory.embeddings import embed_text, embed_texts, get_embedder, tokens
 
 SECRET_PATTERNS = [
     re.compile(r"sk-[A-Za-z0-9_-]{16,}"),
@@ -49,33 +42,6 @@ SECRET_PATTERNS = [
 
 def looks_sensitive(text: str) -> bool:
     return any(p.search(text) for p in SECRET_PATTERNS)
-
-
-def tokens(text: str) -> list[str]:
-    return [w for w in _WORD.findall(text.lower()) if w not in _STOP]
-
-
-class HashingEmbedder:
-    name = "hashing-v1"
-
-    def embed(self, text: str) -> list[float]:
-        vec = [0.0] * DIM
-        words = tokens(text)
-        feats: list[tuple[str, float]] = [(w, 1.0) for w in words]
-        feats += [(f"{a}_{b}", 0.7) for a, b in zip(words, words[1:], strict=False)]
-        for w in words:
-            padded = f"#{w}#"
-            feats += [(padded[i : i + 3], 0.25) for i in range(len(padded) - 2)]
-        for feat, weight in feats:
-            h = hashlib.blake2b(feat.encode(), digest_size=8).digest()
-            idx = int.from_bytes(h[:4], "little") % DIM
-            sign = 1.0 if h[4] & 1 else -1.0
-            vec[idx] += sign * weight
-        norm = math.sqrt(sum(v * v for v in vec)) or 1.0
-        return [v / norm for v in vec]
-
-
-embedder = HashingEmbedder()
 
 
 def cosine(a: list[float], b: list[float]) -> float:
@@ -100,8 +66,11 @@ class SensitiveContentError(ValueError):
     pass
 
 
-async def find_conflicts(db: AsyncSession, user_id: str, content: str, kind: str) -> list[str]:
-    vec = embedder.embed(content)
+async def find_conflicts(
+    db: AsyncSession, user_id: str, content: str, kind: str, vec: list[float] | None = None, name: str | None = None
+) -> list[str]:
+    if vec is None or name is None:
+        vec, name = await embed_text(content)
     rows = (
         (
             await db.execute(
@@ -111,7 +80,12 @@ async def find_conflicts(db: AsyncSession, user_id: str, content: str, kind: str
         .scalars()
         .all()
     )
-    return [m.id for m in rows if m.embedding is not None and cosine(vec, list(m.embedding)) >= 0.6]
+    threshold = 0.6 if name == "hashing-v1" else 0.85  # neural embedders score paraphrases higher
+    return [
+        m.id
+        for m in rows
+        if m.embedding is not None and m.embedder == name and cosine(vec, list(m.embedding)) >= threshold
+    ]
 
 
 async def propose(
@@ -135,7 +109,8 @@ async def propose(
         raise SensitiveContentError(
             "This looks like a credential or sensitive identifier; JARVIS will not store it as a memory."
         )
-    conflicts = await find_conflicts(db, user_id, content, kind)
+    vec, name = await embed_text(content)
+    conflicts = await find_conflicts(db, user_id, content, kind, vec, name)
     mem = Memory(
         user_id=user_id,
         kind=kind,
@@ -146,8 +121,8 @@ async def propose(
         provenance=provenance,
         share_with_model=share_with_model,
         conflicts_with=conflicts,
-        embedding=embedder.embed(content),
-        embedder=embedder.name,
+        embedding=vec,
+        embedder=name,
     )
     db.add(mem)
     await db.flush()
@@ -191,13 +166,31 @@ async def search(
     if not query.strip():
         rows = (await db.execute(stmt.order_by(Memory.updated_at.desc()).limit(limit))).scalars().all()
         return [ScoredMemory(m, 0.0) for m in rows]
-    qv = embedder.embed(query)
-    # pgvector pre-selects the nearest candidates; the hybrid score re-ranks them.
-    stmt = stmt.where(Memory.embedder == embedder.name).order_by(Memory.embedding.cosine_distance(qv)).limit(64)
-    rows = (await db.execute(stmt)).scalars().all()
+    qv, qname = await embed_text(query)
+    # pgvector pre-selects the nearest candidates from the same embedder…
+    vector_rows = (
+        (
+            await db.execute(
+                stmt.where(Memory.embedder == qname).order_by(Memory.embedding.cosine_distance(qv)).limit(64)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    # …and keyword matches over all memories keep everything reachable (e.g. during re-embedding).
+    words = [w for w in tokens(query) if len(w) > 2][:8]
+    keyword_rows = []
+    if words:
+        keyword_rows = (
+            (await db.execute(stmt.where(or_(*[Memory.content.ilike(f"%{w}%") for w in words])).limit(64)))
+            .scalars()
+            .all()
+        )
+    rows = list({m.id: m for m in [*vector_rows, *keyword_rows]}.values())
     scored = []
     for m in rows:
-        vec = cosine(qv, list(m.embedding)) if m.embedding is not None else 0.0
+        same = m.embedding is not None and m.embedder == qname
+        vec = cosine(qv, list(m.embedding)) if same else 0.0
         score = 0.65 * max(vec, 0.0) + 0.35 * keyword_overlap(query, m.content)
         score *= 0.75 + 0.25 * m.confidence
         if score >= min_score:
@@ -209,3 +202,23 @@ async def search(
             s.memory.last_used_at = now
         await db.flush()
     return top
+
+
+async def reembed_all(db: AsyncSession, user_id: str | None = None, batch: int = 64) -> int:
+    """Re-embed memories whose vectors came from a different embedder than the active one."""
+    target = get_embedder().name
+    stmt = select(Memory).where(or_(Memory.embedder != target, Memory.embedding.is_(None)))
+    if user_id:
+        stmt = stmt.where(Memory.user_id == user_id)
+    rows = (await db.execute(stmt)).scalars().all()
+    done = 0
+    for i in range(0, len(rows), batch):
+        chunk = rows[i : i + batch]
+        vectors, name = await embed_texts([m.content for m in chunk])
+        if name != target:
+            break  # provider unavailable: keep existing vectors rather than downgrade
+        for m, v in zip(chunk, vectors, strict=True):
+            m.embedding, m.embedder = v, name
+        done += len(chunk)
+        await db.flush()
+    return done

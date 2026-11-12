@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from jarvis.db.models import EmailDraft, Finding, Memory, Note
 from jarvis.db.session import get_db
 from jarvis.memory import service as memory
+from jarvis.memory.embeddings import embed_text, get_embedder
 from jarvis.schemas import MemoryDTO
 from jarvis.security.audit import audit
 from jarvis.security.auth import SessionContext, current_session
@@ -96,8 +97,7 @@ async def update_memory(
     m = await _own_memory(db, memory_id, ctx.user.id)
     if body.content is not None:
         m.content = body.content
-        m.embedding = memory.embedder.embed(body.content)
-        m.embedder = memory.embedder.name
+        m.embedding, m.embedder = await embed_text(body.content)
         m.provenance = {**m.provenance, "edited_by_user": datetime.now(UTC).isoformat()}
     if body.kind is not None:
         m.kind = body.kind
@@ -297,3 +297,25 @@ async def delete_draft(
     await db.delete(d)
     await db.commit()
     return {"ok": True}
+
+
+@router.get("/memories/embeddings/status")
+async def embedding_status(ctx: SessionContext = Depends(current_session), db: AsyncSession = Depends(get_db)) -> dict:
+    from sqlalchemy import func
+
+    active = get_embedder().name
+    rows = (
+        await db.execute(
+            select(Memory.embedder, func.count()).where(Memory.user_id == ctx.user.id).group_by(Memory.embedder)
+        )
+    ).all()
+    counts = {name or "none": n for name, n in rows}
+    return {"active": active, "counts": counts, "stale": sum(n for name, n in counts.items() if name != active)}
+
+
+@router.post("/memories/embeddings/reembed")
+async def reembed(ctx: SessionContext = Depends(current_session), db: AsyncSession = Depends(get_db)) -> dict:
+    n = await memory.reembed_all(db, ctx.user.id)
+    await audit("memory.reembedded", actor=ctx.actor, details={"count": n, "embedder": get_embedder().name}, db=db)
+    await db.commit()
+    return {"reembedded": n, "embedder": get_embedder().name}
